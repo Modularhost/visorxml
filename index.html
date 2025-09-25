@@ -1,91 +1,194 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Visor Xml SII</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Visor XML DTE</title>
   <style>
-    body {font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7;}
-    h1 {color: #333;}
-    .controls {margin-bottom: 20px;}
-    table {border-collapse: collapse; width: 100%; margin-top: 10px; background: #fff;}
-    table, th, td {border: 1px solid #ccc;}
-    th, td {padding: 8px; text-align: left;}
-    pre {background: #272822; color: #f8f8f2; padding: 10px; overflow-x: auto;}
+    body {
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      margin: 20px;
+      background: #f9fafb;
+      color: #111827;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    h1,h2 {
+      margin: 0 0 12px;
+      font-weight: 600;
+      color: #1e3a8a;
+    }
+    h1 { font-size: 22px; }
+    h2 { font-size: 18px; }
+    label { font-weight: 500; }
+    input[type=file], select, button {
+      font-size: 14px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+    }
+    .btn {
+      background: #2563eb;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .btn:hover { background: #1d4ed8; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+    .pill {
+      background: #eef2ff;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    th {
+      background: #f3f4f6;
+      font-weight: 600;
+    }
+    tr:nth-child(even) td { background: #f9fafb; }
+    .muted { color: #6b7280; font-size: 13px; }
   </style>
 </head>
 <body>
-  <h1>Visor Xml SII</h1>
-  <div class="controls">
-    <label>Seleccionar XML: <input type="file" id="fileInput" accept=".xml"></label>
-    <label>Codificación:
+  <div class="card">
+    <h1>Visor XML DTE</h1>
+    <p class="muted">Carga un archivo XML (formato DTE del SII) y verás el <span class="pill">&lt;Folio&gt;</span>, el <span class="pill">&lt;RznSoc&gt;</span> y el detalle de ítems.</p>
+    <div class="controls">
+      <label for="file">Seleccionar XML:</label>
+      <input id="file" type="file" accept=".xml" />
+      <label for="encoding">Codificación:</label>
       <select id="encoding">
-        <option value="ISO-8859-1">ISO-8859-1</option>
-        <option value="UTF-8">UTF-8</option>
+        <option value="iso-8859-1">ISO-8859-1 (recomendado)</option>
+        <option value="utf-8">UTF-8</option>
+        <option value="windows-1252">Windows-1252</option>
       </select>
-    </label>
-    <button id="parseBtn">Parsear</button>
+      <button id="parseBtn" class="btn" disabled>Parsear</button>
+    </div>
   </div>
 
-  <div id="info"></div>
-  <div id="items"></div>
-  <h3>XML Formateado:</h3>
-  <pre id="xmlOutput"></pre>
+  <div id="result" style="display:none">
+    <div class="card">
+      <h2>Resumen</h2>
+      <p><strong>Folio:</strong> <span id="folio" class="pill">-</span> &nbsp; 
+         <strong>RznSoc (Emisor):</strong> <span id="rznsoc" class="pill">-</span></p>
+    </div>
 
-  <script>
-    function escapeXml(unsafe) {
-      return unsafe.replace(/[&<>"']/g, function(c) {
-        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] || c;
-      });
+    <div class="card">
+      <h2>Detalle de ítems</h2>
+      <div id="itemsContainer" class="muted">-- no hay ítems --</div>
+    </div>
+  </div>
+
+<script>
+  const fileInput = document.getElementById('file');
+  const parseBtn = document.getElementById('parseBtn');
+  const encodingSelect = document.getElementById('encoding');
+
+  fileInput.addEventListener('change', ()=> parseBtn.disabled = !fileInput.files.length);
+
+  parseBtn.addEventListener('click', async ()=>{
+    const file = fileInput.files[0];
+    if(!file) return alert('Selecciona un archivo XML.');
+    const encoding = encodingSelect.value || 'iso-8859-1';
+
+    const ab = await file.arrayBuffer();
+    let text;
+    try {
+      const decoder = new TextDecoder(encoding);
+      text = decoder.decode(ab);
+    } catch {
+      text = new TextDecoder('utf-8').decode(ab);
     }
 
-    document.getElementById('parseBtn').addEventListener('click', () => {
-      const fileInput = document.getElementById('fileInput');
-      const encoding = document.getElementById('encoding').value;
-      if (!fileInput.files.length) return alert("Selecciona un archivo XML");
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(text, 'application/xml');
+    if(xmlDoc.getElementsByTagName('parsererror').length){
+      alert('Error al parsear XML. Verifica el archivo y codificación.');
+      return;
+    }
 
-      const reader = new FileReader();
-      reader.onload = e => {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
+    function xpathFirst(xpath){
+      return xmlDoc.evaluate(xpath, xmlDoc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    }
+    function xpathAll(xpath){
+      const res = xmlDoc.evaluate(xpath, xmlDoc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+      const arr=[]; for(let i=0;i<res.snapshotLength;i++) arr.push(res.snapshotItem(i));
+      return arr;
+    }
 
-        let folioNode = xmlDoc.evaluate("//*[local-name()='Folio']", xmlDoc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-        let rznSocNode = xmlDoc.evaluate("//*[local-name()='Emisor']//*[local-name()='RznSoc']", xmlDoc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-        let fechaNode = xmlDoc.evaluate("//*[local-name()='Encabezado']//*[local-name()='IdDoc']//*[local-name()='FchEmis']", xmlDoc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-        let totalNode = xmlDoc.evaluate("//*[local-name()='Encabezado']//*[local-name()='Totales']//*[local-name()='MntTotal']", xmlDoc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    const folioNode = xpathFirst("//*[local-name()='Folio']");
+    const rznNode = xpathFirst("//*[local-name()='Emisor']/*[local-name()='RznSoc']");
+    document.getElementById('folio').textContent = folioNode ? folioNode.textContent.trim() : '-';
+    document.getElementById('rznsoc').textContent = rznNode ? rznNode.textContent.trim() : '-';
 
-        document.getElementById('info').innerHTML = `
-          <p><b>Folio:</b> ${folioNode?.textContent || ''}</p>
-          <p><b>RznSoc (Emisor):</b> ${rznSocNode?.textContent || ''}</p>
-          <p><b>Fecha Emisión:</b> ${fechaNode?.textContent || ''}</p>
-          <p><b>Total:</b> ${totalNode?.textContent || ''}</p>
-        `;
+    const detalles = xpathAll("//*[local-name()='Detalle']");
+    const itemsContainer = document.getElementById('itemsContainer');
+    if(detalles.length===0){
+      itemsContainer.textContent = '-- no hay ítems --';
+    } else {
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>Nro</th><th>Nombre</th><th>Código</th><th>Cant</th><th>Desc</th><th>FchVencim</th></tr>';
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
 
-        // Detalle de ítems
-        let itemsNodes = xmlDoc.evaluate("//*[local-name()='Detalle']", xmlDoc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-        let html = "<table><tr><th>NroLinDet</th><th>NmbItem</th><th>Cantidad</th><th>Precio</th><th>Monto Item</th></tr>";
-        for (let i = 0; i < itemsNodes.snapshotLength; i++) {
-          let node = itemsNodes.snapshotItem(i);
-          let nro = node.querySelector("NroLinDet")?.textContent || "";
-          let nmb = node.querySelector("NmbItem")?.textContent || "";
-          let qty = node.querySelector("QtyItem")?.textContent || "";
-          let qtyInt = parseFloat(qty);
-          // Mostrar entero si corresponde
-          let qtyDisplay = Number.isNaN(qtyInt) ? qty : (Number.isInteger(qtyInt) ? qtyInt : qtyInt.toFixed(2));
-
-          let precio = node.querySelector("PrcItem")?.textContent || "";
-          let monto = node.querySelector("MontoItem")?.textContent || "";
-          html += `<tr><td>${nro}</td><td>${nmb}</td><td>${qtyDisplay}</td><td>${precio}</td><td>${monto}</td></tr>`;
+      detalles.forEach(det=>{
+        function childText(el,xpath){
+          const res = document.evaluate(xpath, el, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+          return res.singleNodeValue ? res.singleNodeValue.textContent.trim() : '';
         }
-        html += "</table>";
-        document.getElementById('items').innerHTML = html;
+        const nro = childText(det, "./*[local-name()='NroLinDet']");
+        const nombre = childText(det, "./*[local-name()='NmbItem']");
+        const codigo = childText(det, "./*[local-name()='CdgItem']/*[local-name()='VlrCodigo']");
+        const qtyRaw = childText(det, "./*[local-name()='QtyItem']");
+        let qty = '';
+        if(qtyRaw){
+          const num = parseFloat(qtyRaw);
+          qty = Number.isInteger(num) ? num : num.toFixed(2);
+        }
+        const dsc = childText(det, "./*[local-name()='DscItem']");
+        const fchv = childText(det, "./*[local-name()='FchVencim']");
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${nro}</td><td>${escapeHtml(nombre)}</td><td>${codigo}</td><td>${qty}</td><td>${escapeHtml(dsc)}</td><td>${fchv}</td>`;
+        tbody.appendChild(tr);
+      });
 
-        // Mostrar XML formateado
-        const serializer = new XMLSerializer();
-        let xmlString = serializer.serializeToString(xmlDoc.documentElement);
-        document.getElementById('xmlOutput').textContent = escapeXml(xmlString);
-      };
-      reader.readAsText(fileInput.files[0], encoding);
-    });
-  </script>
+      table.appendChild(tbody);
+      itemsContainer.innerHTML='';
+      itemsContainer.appendChild(table);
+    }
+
+    document.getElementById('result').style.display='block';
+  });
+
+  function escapeHtml(s){
+    if(!s) return '';
+    return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+</script>
 </body>
 </html>
