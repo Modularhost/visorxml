@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Visor XML DTE - Folio y RznSoc</title>
+  <style>
+    body{font-family:Inter,system-ui,Segoe UI,Arial;margin:20px;background:#f7fafc;color:#0f172a}
+    .card{background:#fff;border-radius:8px;box-shadow:0 6px 18px rgba(15,23,42,0.06);padding:18px;margin-bottom:16px}
+    h1{margin:0 0 8px;font-size:20px}
+    label{display:inline-block;margin-right:8px}
+    input[type=file]{display:inline-block}
+    pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;color:#e6eef8;padding:12px;border-radius:6px;overflow:auto}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border:1px solid #e6eef8;padding:8px;text-align:left;font-size:13px}
+    th{background:#f1f5f9}
+    .small{font-size:13px;color:#475569}
+    .controls{display:flex;gap:12px;align-items:center}
+    .pill{background:#eef2ff;padding:6px 10px;border-radius:999px;font-weight:600}
+    .muted{color:#7b8794;font-size:13px}
+    .btn{background:#0369a1;color:white;padding:8px 12px;border-radius:6px;border:none;cursor:pointer}
+    .btn:disabled{opacity:0.5}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Visor XML DTE</h1>
+    <p class="small">Carga un archivo XML (formato DTE del SII) y el visor mostrará el <span class="pill">&lt;Folio&gt;</span>, el <span class="pill">&lt;RznSoc&gt;</span> del emisor, el detalle de ítems y el XML formateado.</p>
+    <div class="controls">
+      <label for="file">Seleccionar XML:</label>
+      <input id="file" type="file" accept=".xml" />
+      <label for="encoding">Codificación:</label>
+      <select id="encoding">
+        <option value="iso-8859-1">ISO-8859-1 (recomendado)</option>
+        <option value="utf-8">UTF-8</option>
+        <option value="windows-1252">windows-1252</option>
+      </select>
+      <button id="parseBtn" class="btn" disabled>Parsear</button>
+    </div>
+  </div>
+
+  <div id="result" style="display:none">
+    <div class="card">
+      <h2>Resumen</h2>
+      <p><strong>Folio:</strong> <span id="folio" class="pill">-</span> &nbsp; <strong>RznSoc (Emisor):</strong> <span id="rznsoc" class="pill">-</span></p>
+      <p class="muted">Fecha emisión y totales (si existen) están listados abajo.</p>
+      <table id="summaryTable" style="display:none">
+        <thead>
+          <tr><th>Campo</th><th>Valor</th></tr>
+        </thead>
+        <tbody id="summaryBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Detalle de ítems</h2>
+      <div id="itemsContainer" class="small">-- no hay ítems --</div>
+    </div>
+
+    <div class="card">
+      <h2>XML formateado</h2>
+      <pre id="prettyXml"></pre>
+    </div>
+  </div>
+
+<script>
+  const fileInput = document.getElementById('file');
+  const parseBtn = document.getElementById('parseBtn');
+  const encodingSelect = document.getElementById('encoding');
+
+  fileInput.addEventListener('change', ()=> parseBtn.disabled = !fileInput.files.length);
+
+  parseBtn.addEventListener('click', async ()=>{
+    const file = fileInput.files[0];
+    if(!file) return alert('Selecciona un archivo XML.');
+    const encoding = encodingSelect.value || 'iso-8859-1';
+
+    // leer como ArrayBuffer y decodificar con la codificación seleccionada
+    const ab = await file.arrayBuffer();
+    let text;
+    try{
+      const decoder = new TextDecoder(encoding);
+      text = decoder.decode(ab);
+    }catch(e){
+      // fallback a utf-8
+      text = new TextDecoder('utf-8').decode(ab);
+    }
+
+    // parsear XML
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(text, 'application/xml');
+    const parserError = xmlDoc.getElementsByTagName('parsererror');
+    if(parserError.length){
+      alert('Error al parsear XML. Revisa que el archivo sea válido y la codificación.');
+      return;
+    }
+
+    // helper: ejecutar XPath que ignore namespaces (usa local-name())
+    function xpathFirst(xpath){
+      const res = xmlDoc.evaluate(xpath, xmlDoc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+      return res.singleNodeValue;
+    }
+    function xpathAll(xpath){
+      const res = xmlDoc.evaluate(xpath, xmlDoc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+      const arr=[];
+      for(let i=0;i<res.snapshotLength;i++) arr.push(res.snapshotItem(i));
+      return arr;
+    }
+
+    // obtener Folio: //*[local-name()='Folio']
+    const folioNode = xpathFirst("//*[local-name()='Folio']");
+    const folio = folioNode ? folioNode.textContent.trim() : '';
+
+    // obtener RznSoc del Emisor: //Emisor/*[local-name()='RznSoc']
+    const rznNode = xpathFirst("//*[local-name()='Emisor']/*[local-name()='RznSoc']");
+    const rzn = rznNode ? rznNode.textContent.trim() : '';
+
+    // mostrar resumen básicos
+    document.getElementById('folio').textContent = folio || '-';
+    document.getElementById('rznsoc').textContent = rzn || '-';
+
+    // totales y fechas útiles
+    const summaryBody = document.getElementById('summaryBody');
+    summaryBody.innerHTML='';
+    const campos = [
+      {label:'FchEmis', xpath:"//*[local-name()='FchEmis']"},
+      {label:'FchVenc', xpath:"//*[local-name()='FchVenc']"},
+      {label:'MntNeto', xpath:"//*[local-name()='MntNeto']"},
+      {label:'MntExe', xpath:"//*[local-name()='MntExe']"},
+      {label:'MntTotal', xpath:"//*[local-name()='MntTotal']"}
+    ];
+    let hasSummary=false;
+    campos.forEach(c=>{
+      const n = xpathFirst(c.xpath);
+      if(n){
+        hasSummary=true;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${c.label}</td><td>${n.textContent.trim()}</td>`;
+        summaryBody.appendChild(tr);
+      }
+    });
+    document.getElementById('summaryTable').style.display = hasSummary ? 'table' : 'none';
+
+    // Detalle: puede haber varios nodos <Detalle>
+    const detalles = xpathAll("//*[local-name()='Detalle']");
+    const itemsContainer = document.getElementById('itemsContainer');
+    if(detalles.length===0){
+      itemsContainer.textContent = '-- no hay ítems --';
+    }else{
+      // crear tabla
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>Nro</th><th>Código</th><th>Nombre</th><th>Cant</th><th>Unidad</th><th>Precio</th><th>Monto</th><th>Desc</th><th>FchVencim</th></tr>';
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      detalles.forEach(det=>{
+        const nro = det.getElementsByTagNameNS ? (det.getElementsByTagNameNS('*','NroLinDet')[0]||det.querySelector('NroLinDet')) : det.querySelector('NroLinDet');
+        // use XPath local-name() to find child nodes inside this detalle
+        function childText(el,xpath){
+          const res = document.evaluate(xpath, el, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+          return res.singleNodeValue ? res.singleNodeValue.textContent.trim() : '';
+        }
+        const nroTxt = childText(det, "./*[local-name()='NroLinDet']");
+        const codigo = childText(det, "./*[local-name()='CdgItem']/*[local-name()='VlrCodigo']");
+        const nombre = childText(det, "./*[local-name()='NmbItem']");
+        const qty = childText(det, "./*[local-name()='QtyItem']");
+        const unidad = childText(det, "./*[local-name()='UnmdItem']");
+        const precio = childText(det, "./*[local-name()='PrcItem']");
+        const monto = childText(det, "./*[local-name()='MontoItem']");
+        const dsc = childText(det, "./*[local-name()='DscItem']");
+        const fchv = childText(det, "./*[local-name()='FchVencim']");
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${nroTxt}</td><td>${codigo}</td><td>${escapeHtml(nombre)}</td><td>${qty}</td><td>${unidad}</td><td>${precio}</td><td>${monto}</td><td>${escapeHtml(dsc)}</td><td>${fchv}</td>`;
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      itemsContainer.innerHTML='';
+      itemsContainer.appendChild(table);
+    }
+
+    // show pretty XML
+    const pretty = formatXml(text);
+    document.getElementById('prettyXml').textContent = pretty;
+
+    document.getElementById('result').style.display='block';
+  });
+
+  // small utility: escape HTML when inserting values inside table
+  function escapeHtml(s){
+    if(!s) return '';
+    return s.replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'":"'"}[c] || c;
+    });
+  }
+
+  // pretty formatter (simple)
+  function formatXml(xml){
+    // remove extra spaces between tags
+    let formatted = '';
+    const reg = /(>)(<)(\/*)/g;
+    xml = xml.replace(reg, '\n$1$2$3');
+    const lines = xml.split(/\r?\n/);
+    let pad = 0;
+    lines.forEach(line=>{
+      if(line.match(/<[\/]/)){
+        pad = Math.max(pad-1,0);
+      }
+      const indent = '  '.repeat(pad);
+      if(line.trim()) formatted += indent + line.trim() + '\n';
+      if(line.match(/<[^\/!][^>]*[^\/]>/) && !line.includes('<?') && !line.includes('<!')){
+        pad++;
+      }
+    });
+    return formatted;
+  }
+
+</script>
+</body>
+</html>
